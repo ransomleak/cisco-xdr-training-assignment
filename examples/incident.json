@@ -1,0 +1,11 @@
+{
+  "id": "INC-2049",
+  "title": "Credential phishing: user submitted credentials to spoofed portal",
+  "severity": "high",
+  "observables": [
+    { "type": "email", "value": "jane.doe@example.com" },
+    { "type": "domain", "value": "login-verify.example.net" },
+    { "type": "user", "value": "jdoe" },
+    { "type": "email", "value": "sam.patel@example.com" }
+  ]
+}
