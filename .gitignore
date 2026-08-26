@@ -1,3 +1,7 @@
 .env
 __pycache__/
 *.pyc
+
+# The repo root ignores `*.env*`, which swallows the template the README tells
+# people to copy. This directory is mirrored to a public repo, so it has to ship.
+!.env.example

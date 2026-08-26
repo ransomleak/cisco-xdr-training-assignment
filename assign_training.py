@@ -11,13 +11,13 @@ playbook, or straight from a terminal.
 
 Usage:
     # from an incident payload
-    python assign_training.py --incident-file incident.json
+    python assign_training.py --incident-file examples/incident.json
 
     # or a single address, e.g. from a pivot menu
     python assign_training.py --email jane@example.com --incident-id INC-1234
 
     # see what would happen, call nothing
-    python assign_training.py --incident-file incident.json --dry-run
+    python assign_training.py --incident-file examples/incident.json --dry-run
 
 Exit codes:
     0  every assignment succeeded, or --dry-run
@@ -51,6 +51,25 @@ INVALID_CALLBACK_CODES = ("WEBHOOK_INVALID_URL", "INTEGRATION_INVALID_CALLBACK")
 
 class ConfigError(Exception):
     """Raised when the environment or arguments cannot produce a valid request."""
+
+
+def allowed_domains() -> set[str]:
+    """Your own email domains, from RANSOMLEAK_EMAIL_DOMAINS.
+
+    An incident names attackers as well as victims: a credential-phishing
+    incident carries the spoofed sender as an `email` observable right next to
+    the employee who clicked it. Assigning training to every address on the
+    incident would mail a lesson link to attacker-controlled addresses and
+    create learner records for them, which is worse on an automatic trigger
+    where no analyst sees it happen. Reading an incident therefore requires this
+    list, so the tool can tell your people from everyone else.
+    """
+    raw = (os.environ.get("RANSOMLEAK_EMAIL_DOMAINS") or "").strip()
+    return {d.strip().lower().lstrip("@") for d in raw.split(",") if d.strip()}
+
+
+def domain_of(email: str) -> str:
+    return email.rsplit("@", 1)[-1].lower()
 
 
 def require_env(name: str) -> str:
@@ -89,11 +108,12 @@ def iter_observables(incident: dict[str, Any]) -> Iterable[Any]:
                 yield from target.get("observables") or []
 
 
-def extract_emails(incident: dict[str, Any]) -> list[str]:
+def extract_emails(incident: dict[str, Any], domains: set[str]) -> list[str]:
     """Collect assignee addresses from an XDR incident payload.
 
-    Order is preserved and addresses are deduplicated case-insensitively, so a
-    person named by several observables in one incident is assigned once.
+    Only addresses in `domains` are returned: see {@link allowed_domains}. Order
+    is preserved and addresses are deduplicated case-insensitively, so a person
+    named by several observables in one incident is assigned once.
     """
     found: list[str] = []
     seen: set[str] = set()
@@ -107,6 +127,8 @@ def extract_emails(incident: dict[str, Any]) -> list[str]:
         value = str(observable.get("value") or "").strip()
         if not value or not looks_like_email(value):
             continue
+        if domain_of(value) not in domains:
+            continue  # not one of ours: a sender, a reporter, a third party
 
         key = value.lower()
         if key not in seen:
@@ -158,7 +180,10 @@ def assign(session: requests.Session, base_url: str, payload: dict[str, Any]) ->
         timeout=DEFAULT_TIMEOUT_SECONDS,
     )
     if response.ok:
-        return response.json()
+        body = response.json()
+        if not isinstance(body, dict):
+            raise RuntimeError(f"unexpected success body: {response.text[:200]}")
+        return body
 
     raise RuntimeError(f"HTTP {response.status_code}: {describe_error(response)}")
 
@@ -168,6 +193,12 @@ def describe_error(response: requests.Response) -> str:
     try:
         body = response.json()
     except ValueError:
+        return response.text[:300] or "(empty response body)"
+
+    # A gateway or WAF can answer with valid JSON that is not an object. Without
+    # this, .get() raises AttributeError out of assign()'s f-string, escapes the
+    # send loop's handler, and abandons everyone left in the incident.
+    if not isinstance(body, dict):
         return response.text[:300] or "(empty response body)"
 
     code = body.get("code")
@@ -232,9 +263,30 @@ def main(argv: list[str] | None = None) -> int:
         incident: dict[str, Any] | None = None
         if args.incident_file:
             incident = load_incident(args.incident_file)
-            emails = extract_emails(incident)
+            domains = allowed_domains()
+            if not domains:
+                raise ConfigError(
+                    "RANSOMLEAK_EMAIL_DOMAINS is not set. Reading an incident needs it: an "
+                    "incident names attackers as well as victims, and without your own domains "
+                    "this would assign training to the spoofed sender too. Set it to a "
+                    "comma-separated list, e.g. RANSOMLEAK_EMAIL_DOMAINS=acme.com,acme.co.uk "
+                    "(or use --email to assign one address you have chosen yourself)."
+                )
+            emails = extract_emails(incident, domains)
         else:
-            emails = [args.email]
+            # An address the analyst typed or a pivot menu supplied. It is chosen
+            # deliberately, so no domain filter, but it still has to be an address:
+            # a `user` observable often carries a bare username.
+            address = (args.email or "").strip()
+            if not looks_like_email(address):
+                raise ConfigError(f"--email needs an email address, got {address!r}.")
+            if not args.incident_id:
+                raise ConfigError(
+                    "--incident-id is required with --email. The idempotency key is built from "
+                    "it, so without one every manual run for the same person and lesson shares "
+                    "a key and replays the first assignment instead of making a new one."
+                )
+            emails = [address]
 
         base_url = require_env("RANSOMLEAK_BASE_URL").rstrip("/")
         exercise_slug = args.exercise_slug or require_env("RANSOMLEAK_EXERCISE_SLUG")
@@ -251,7 +303,7 @@ def main(argv: list[str] | None = None) -> int:
         print("No email observables on this incident, nothing to assign.", file=sys.stderr)
         return 0
 
-    incident_id = str(args.incident_id or (incident or {}).get("id") or "manual")
+    incident_id = str(args.incident_id or (incident or {}).get("id") or "unknown-incident")
     callback_url = (os.environ.get("RANSOMLEAK_CALLBACK_URL") or "").strip() or None
     payloads = [
         build_payload(email, exercise_slug, incident_id, incident, callback_url) for email in emails

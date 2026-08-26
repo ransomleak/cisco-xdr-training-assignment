@@ -11,7 +11,7 @@ person through RansomLeak's partner integration API, returning a deep link
 straight to the lesson.
 
 ```
-$ python assign_training.py --incident-file incident.json
+$ python assign_training.py --incident-file examples/incident.json
 OK      jane.doe@example.com -> assigned (7c2c3d3e-1234-5678-9abc-1234567890ab)
         https://acme.ransomleak.com/a/eyJhbGciOi...
 OK      sam.patel@example.com -> assigned (9f1b7a20-4321-8765-cba9-0987654321fe)
@@ -62,17 +62,26 @@ All configuration is environment variables. Nothing is stored in the repo.
 | `RANSOMLEAK_BASE_URL` | yes | Your tenant URL, e.g. `https://acme.ransomleak.com` |
 | `RANSOMLEAK_API_TOKEN` | yes | Partner API token with the `integration` scope |
 | `RANSOMLEAK_EXERCISE_SLUG` | yes | Lesson to assign, e.g. `phishing-introduction` |
+| `RANSOMLEAK_EMAIL_DOMAINS` | for `--incident-file` | Your own email domains, comma separated, e.g. `acme.com,acme.co.uk` |
 | `RANSOMLEAK_CALLBACK_URL` | no | RansomLeak POSTs here when the lesson is completed |
 
 `RANSOMLEAK_API_TOKEN` can assign training to anyone in your tenant. Store it the
 way you store any other API credential.
+
+`RANSOMLEAK_EMAIL_DOMAINS` is what separates your employees from everyone else on
+an incident, so reading an incident requires it. An incident names attackers as
+well as victims: a credential-phishing incident carries the spoofed sender as an
+`email` observable right beside the person who clicked. Without the list, this
+would mail a lesson link to attacker-controlled addresses, and on an automatic
+trigger nobody would see it happen. `--email` skips the filter, because there you
+have chosen the address yourself.
 
 ## Usage
 
 Assign to everyone named in an incident:
 
 ```bash
-python assign_training.py --incident-file incident.json
+python assign_training.py --incident-file examples/incident.json
 ```
 
 Assign a single address, which is what a pivot-menu trigger on an `email`
@@ -85,13 +94,13 @@ python assign_training.py --email jane.doe@example.com --incident-id INC-2049
 Read the incident from stdin, for piping out of another tool:
 
 ```bash
-cat incident.json | python assign_training.py --incident-file -
+cat examples/incident.json | python assign_training.py --incident-file -
 ```
 
 See exactly what would be sent, without sending it:
 
 ```bash
-python assign_training.py --incident-file incident.json --dry-run
+python assign_training.py --incident-file examples/incident.json --dry-run
 ```
 
 | Exit code | Meaning |
@@ -133,6 +142,8 @@ configuration mistake without spamming your employees.
 - It reads `user` observables only when they contain an email address. A bare
   username cannot be matched to a learner, so those are skipped rather than
   guessed at.
+- It never assigns training to an address outside `RANSOMLEAK_EMAIL_DOMAINS`, so
+  senders, reporters and other third parties on an incident are left alone.
 
 ## Related resources
 
