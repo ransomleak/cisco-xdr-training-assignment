@@ -46,8 +46,8 @@ not just the technical one.
 ## Installation
 
 ```bash
-git clone <this-repo>
-cd cisco-xdr
+git clone https://github.com/ransomleak/cisco-xdr-training-assignment.git
+cd cisco-xdr-training-assignment
 pip install -r requirements.txt
 cp .env.example .env      # then fill it in
 set -a; . ./.env; set +a
@@ -142,6 +142,14 @@ configuration mistake without spamming your employees.
   triggers, and the observable type reference
 - [Contact RansomLeak](https://ransomleak.com/contact-us/) — for a tenant, an API
   token, or help wiring this into a workflow
+
+## Catalog / source
+
+This project is published to Cisco Code Exchange from
+`github.com/ransomleak/cisco-xdr-training-assignment`. The source of truth is
+mirrored from the RansomLeak monorepo (`integrations/cisco-xdr/`), so please
+raise issues and pull requests against the GitHub repo rather than patching a
+copy.
 
 ## License
 
